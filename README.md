@@ -1,145 +1,226 @@
-# zunda-hooks
+<h1 align="center">gemini-tts-hooks</h1>
 
-Claude Code のツール実行時にずんだもん（VOICEVOX）が喋る Claude Code フック集。
+<p align="center">
+  Claude Code のツール実行時に、Gemini TTS ベースの音声を再生するフック集です。
+</p>
 
-音声合成のレイテンシを減らすため `~/.claude/hooks/zaudio/` に WAV を事前キャッシュします。
-キャッシュがあれば即再生、なければ VOICEVOX で合成してキャッシュに保存します。
+<p align="center">
+  <img src="https://img.shields.io/badge/Gemini-TTS-4285F4" alt="Gemini TTS"/>
+  <img src="https://img.shields.io/badge/Audio-WAV-0A7E07" alt="WAV"/>
+  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white" alt="Node.js"/>
+  <img src="https://img.shields.io/badge/ffmpeg-required-007808" alt="ffmpeg"/>
+</p>
 
-## 要件
+音声合成のレイテンシを減らすため、`~/.claude/hooks/gemini-tts-audio/` に `wav` を事前キャッシュします。キャッシュがあれば即再生し、未生成のキーだけ Gemini API でオンデマンド生成して保存します。
+
+## ✅ 要件
 
 | ツール | Linux | macOS | Windows (Git Bash) |
 |---|---|---|---|
 | jq | `sudo apt install jq` | `brew install jq` | `winget install jqlang.jq` |
-| 音声再生 | `aplay` または `paplay` | `afplay`（標準搭載） | PowerShell（標準搭載） |
+| node | `sudo apt install nodejs` | `brew install node` | `winget install OpenJS.NodeJS.LTS` |
+| ffmpeg | `sudo apt install ffmpeg` | `brew install ffmpeg` | `winget install Gyan.FFmpeg` |
+| 音声再生 | `paplay` または `aplay` | `afplay` | PowerShell |
 | curl | 通常標準搭載 | 通常標準搭載 | Git Bash に同梱 |
-| python3 | 通常標準搭載 | 通常標準搭載 | `winget install Python.Python.3` |
-| VOICEVOX | `~/.voicevox/VOICEVOX.AppImage` | `/Applications/VOICEVOX.app` | `%LOCALAPPDATA%\Programs\VOICEVOX\VOICEVOX.exe` |
+| Gemini API キー | `GEMINI_API_KEY` | `GEMINI_API_KEY` | `GEMINI_API_KEY` |
 
-## セットアップ
+補足:
 
-### 1. VOICEVOX を起動
+- Linux は `paplay` を優先するため、実質的には PulseAudio / PipeWire 系環境がもっとも相性がよいです
+- `GEMINI_TTS_AUDIO_DEVICE` によるデバイス指定は `paplay` 使用時のみ有効です
+- Windows は Git Bash + `powershell.exe` が使える前提です
 
-**Linux**
+## ⚙️ セットアップ
+
+実際の使い方は、このリポジトリを `git clone` した後、`scripts/install-hooks.sh` で Claude Code の Hook 設定へ登録する流れです。
+
+### 0. リポジトリを clone する
+
 ```bash
-~/.voicevox/VOICEVOX.AppImage --no-sandbox &
-curl http://localhost:50021/version  # 起動確認
+git clone <this-repo> gemini-tts-hooks
+cd gemini-tts-hooks
 ```
 
-**macOS**
+### 1. Hook を登録する
+
+ユーザースコープへ登録する場合:
+
 ```bash
-open -a VOICEVOX
-curl http://localhost:50021/version  # 起動確認
+bash scripts/install-hooks.sh
 ```
 
-**Windows（Git Bash）**
+特定プロジェクトだけへ登録する場合:
+
 ```bash
-# スタートメニューから VOICEVOX を起動するか:
-"$LOCALAPPDATA/Programs/VOICEVOX/VOICEVOX.exe" &
-curl http://localhost:50021/version  # 起動確認
+bash scripts/install-hooks.sh --project /path/to/your-project
 ```
 
-### 2. 音声を事前生成
+このスクリプトは `settings.json` をバックアップしたうえで、`SessionStart` / `SessionEnd` / `PreToolUse` / `PostToolUse` の Hook を登録します。
+
+補足:
+
+- `--user` は `~/.claude/settings.json` を更新します
+- `--project` は指定プロジェクトの `.claude/settings.json` を更新します
+- Windows では `USERPROFILE` と `cygpath` に依存してホームディレクトリを解決します
+
+### 2. API キーを設定
+
+```bash
+cp .env.example .env
+```
+
+`.env` に以下を設定します。
+
+```dotenv
+GEMINI_API_KEY=your-api-key
+```
+
+### 3. 音声を事前生成
 
 ```bash
 bash scripts/pregenerate.sh
 ```
 
-全ツール用の WAV が `~/.claude/hooks/zaudio/` に生成されます。
+全ツール用の `wav` が `~/.claude/hooks/gemini-tts-audio/` に生成され、初回警告音声は `assets/initial_warning.wav` に生成されます。
 
-### 3. Claude Code を開く
+### 3.5 再生デバイスを指定する（任意）
 
-プロジェクトディレクトリで Claude Code を起動すると自動的にフックが有効になります。
-`Read` や `Bash` ツールが実行されるたびにずんだもんが喋ります。
+Linux で既定デバイス以外に出したい場合は、`GEMINI_TTS_AUDIO_DEVICE` に sink 名を設定します。
 
-## 発話テキスト
+現在の sink 一覧は次で確認できます。
+
+```bash
+pactl list short sinks
+```
+
+指定例:
+
+```bash
+export GEMINI_TTS_AUDIO_DEVICE="alsa_output.usb-Your_Device_Name.stereo-fallback"
+```
+
+設定すると、`paplay --device="$GEMINI_TTS_AUDIO_DEVICE"` で再生されます。未設定ならシステム既定デバイスを使います。
+
+### 4. Claude Code を開く
+
+Hook を登録したスコープで Claude Code を起動すると、自動的にフックが有効になります。`Read` や `Bash` ツールが実行されるたびに音声が再生されます。
+
+## 🗣️ 発話テキスト
 
 | イベント | ツール | 発話 |
 |---|---|---|
-| PreToolUse | Bash | コマンドを実行するのだ |
-| PreToolUse | Write | ファイルを書き込むのだ |
-| PreToolUse | Edit | ファイルを編集するのだ |
-| PreToolUse | Read | ファイルを読むのだ |
-| PreToolUse | Glob | ファイルを探すのだ |
-| PreToolUse | Grep | ファイルを検索するのだ |
-| PreToolUse | その他 | {tool_name}を使うのだ |
-| PostToolUse | Bash | コマンドが完了したのだ |
-| PostToolUse | Write | 書き込みが完了したのだ |
-| PostToolUse | Edit | 編集が完了したのだ |
-| PostToolUse | その他 | {tool_name}が完了したのだ |
+| PreToolUse | Bash | コマンドを実行します |
+| PreToolUse | Write | ファイルを書き込みます |
+| PreToolUse | Edit | ファイルを編集します |
+| PreToolUse | Read | ファイルを読み込みます |
+| PreToolUse | Glob | ファイルを探します |
+| PreToolUse | Grep | ファイルを検索します |
+| PreToolUse | その他 | ツールを使用します |
+| PostToolUse | Bash | コマンドが完了しました |
+| PostToolUse | Write | 書き込みが完了しました |
+| PostToolUse | Edit | 編集が完了しました |
+| PostToolUse | その他 | 処理が完了しました |
 
-## キャッシュ管理
+`git push` と `gh pr create` は専用メッセージを維持します。
+
+## 🧹 キャッシュ管理
 
 ```bash
-# キャッシュをリセット（再度 pregenerate.sh を実行してください）
-rm ~/.claude/hooks/zaudio/*.wav
-
-# キャッシュの確認
-ls -lh ~/.claude/hooks/zaudio/
+rm ~/.claude/hooks/gemini-tts-audio/*.wav
+ls -lh ~/.claude/hooks/gemini-tts-audio/
 ```
 
-## VOICEVOX の自動起動・終了
+古い `mp3` キャッシュが残っていても参照されません。不要なら手動で削除してください。
 
-- **SessionStart**: VOICEVOX が未起動なら自動起動します
-- **SessionEnd**: 他のセッションがなければ VOICEVOX を自動終了します
+## 🚀 セッション開始時の挙動
 
-セッション管理ファイル: `~/.claude/hooks/zaudio/.sessions/`
+- `.cache-manifest` に列挙された `wav` が揃っていれば通常運用に入ります
+- キャッシュが不足している場合は `assets/initial_warning.wav` を同期再生します
+- `SessionEnd` はセッション追跡ファイルだけを掃除し、TTS プロセス管理は行いません
 
-## 初回警告
+セッション管理ファイル: `~/.claude/hooks/gemini-tts-audio/.sessions/`
 
-`pregenerate.sh` 未実行（キャッシュ 0 件）の場合、セッション開始時に警告音声を再生します:
+## 🔄 Hook の流れ
 
-> 「見知らぬ人のつくったhooksをよく見ないままインストールして使うことは、とても危険なのだ」
+Claude Code から見ると、フックは次の順で連携します。
 
-警告音声は `assets/initial_warning.wav` としてリポジトリに含まれています。
+1. `SessionStart` で [`gemini-tts-session-start.sh`](./.claude/hooks/gemini-tts-session-start.sh) が起動します
+2. `PreToolUse` / `PostToolUse` で [`gemini-tts-speak.sh`](./.claude/hooks/gemini-tts-speak.sh) が起動します
+3. `SessionEnd` で [`gemini-tts-session-end.sh`](./.claude/hooks/gemini-tts-session-end.sh) が起動します
 
-## トラブルシュート
+役割は次の通りです。
+
+- `gemini-tts-session-start.sh`
+  - セッション追跡ファイルを作成します
+  - キャッシュ不足時だけ `assets/initial_warning.wav` を再生します
+- `gemini-tts-speak.sh`
+  - Hook JSON を読み、イベントに応じた発話文へ変換します
+  - キャッシュ済み `wav` があれば即再生し、なければ Gemini TTS で生成して再生します
+  - `.playing.lock` と生成ロックで多重実行を防ぎます
+- `gemini-tts-session-end.sh`
+  - セッション追跡ファイルを削除します
+
+たとえば `Read` 実行時は、`PreToolUse` で「ファイルを読み込みます」を再生し、ツール実行後の `PostToolUse` でも完了メッセージを再生します。
+
+## ⚠️ 初回警告
+
+`pregenerate.sh` 未実行でキャッシュが揃っていない場合、セッション開始時に次の警告を再生します。
+
+> 「見知らぬ人が作成した hooks を内容を確認せずにインストールして使うのは危険です」
+
+警告音声は `scripts/pregenerate.sh` により Gemini TTS から `assets/initial_warning.wav` として生成します。
+
+## 🛠️ トラブルシュート
+
+### `GEMINI_API_KEY is not set.`
+
+- `.env` に `GEMINI_API_KEY=...` があるか確認してください
+- なければ環境変数 `GEMINI_API_KEY` を設定してください
 
 ### 音声が再生されない
 
-1. VOICEVOX が起動しているか確認: `curl http://localhost:50021/version`
-2. aplay が使えるか確認: `aplay --version`
-3. キャッシュが生成されているか確認: `ls ~/.claude/hooks/zaudio/`
-4. jq がインストールされているか確認: `jq --version`
+1. キャッシュが生成されているか確認: `ls ~/.claude/hooks/gemini-tts-audio/`
+2. Linux では `paplay --version` を確認
+3. 特定デバイスを使う場合は `echo "$GEMINI_TTS_AUDIO_DEVICE"` と `pactl list short sinks` を確認
+4. `jq --version`、`node --version`、`ffmpeg -version` を確認
+5. Claude Code の verbose モードでフック出力を確認
 
-### VOICEVOX が起動しない
+### Gemini API 呼び出しが失敗する
 
-X11/ディスプレイが必要な場合:
+1. ネットワーク接続を確認
+2. API キーが有効か確認
+3. `bash scripts/pregenerate.sh` を再実行して失敗箇所を確認
 
-```bash
-# Xvfb を使ってヘッドレス起動
-xvfb-run ~/.voicevox/VOICEVOX.AppImage --no-sandbox &
-```
+## 📁 ファイル構成
 
-### フックが動いているか確認する
-
-Claude Code の verbose モード（Ctrl+O）でフックの出力を確認できます。
-
-## ファイル構成
-
-```
+```text
 .claude/
-  settings.json          # フック設定（プロジェクトスコープ）
-  settings.local.json    # 権限設定
+  settings.json
   hooks/
-    zunda-speak.sh        # PreToolUse/PostToolUse 共用スクリプト
-    zunda-session-start.sh # SessionStart フック
-    zunda-session-end.sh   # SessionEnd フック
+    gemini-tts-speak.sh
+    gemini-tts-session-start.sh
+    gemini-tts-session-end.sh
 scripts/
-  pregenerate.sh         # 事前キャッシュ生成スクリプト
+  pregenerate.sh
+  generate_tts.sh
+  decode_pcm_to_wav.js
+  split_text_chunks.js
+  tts_to_wav.sh
 assets/
-  initial_warning.wav    # 初回警告音声（リポジトリに含む）
+  initial_warning.wav
 ```
 
-## キャッシュの場所
+## 💾 キャッシュの場所
 
-`~/.claude/hooks/zaudio/` はユーザーホームに置かれるため、
-複数プロジェクトで共有されます（再生成不要）。
+`~/.claude/hooks/gemini-tts-audio/` はユーザーホーム配下にあるため、複数プロジェクトで共有されます。
 
-## クレジット
+補足:
 
-このプロジェクトは以下のソフトウェアおよびキャラクターを使用しています。
+- キャッシュパスは固定で、プロジェクトごとに分離されません
+- 共有マシンや複数ユーザー環境では、`$HOME` の向き先に注意してください
 
-- 音声合成: [VOICEVOX](https://voicevox.hiroshiba.jp/)
-- キャラクター音声: ずんだもん（CV: 七海うみ）
-  - `assets/initial_warning.wav` および `scripts/pregenerate.sh` で生成するキャッシュ音声は VOICEVOX により合成されたものです
-  - キャラクターの利用規約: https://zunko.jp/con_ongen_kiyaku.html
+## 🙏 クレジット
+
+- このリポジトリは `zunda-hooks` をベースに、Gemini TTS 向けへ移植・再構成したものです
+- 音声合成: [Gemini TTS](https://ai.google.dev/)
+- キャラクター音声: Gemini の prebuilt voice を使用

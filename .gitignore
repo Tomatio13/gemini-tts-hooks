@@ -1,5 +1,7 @@
 # セッション追跡ファイル（ローカル管理）
-.claude/hooks/zaudio/
+.claude/hooks/gemini-tts-audio/
+.claude/settings.json.bak
+.env
 
 # macOS
 .DS_Store

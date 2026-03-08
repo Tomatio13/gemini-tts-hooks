@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/install-hooks.sh
-# ずんだもん hooks を Claude Code の設定にインストールする
+# gemini-tts hooks を Claude Code の設定にインストールする
 #
 # 使用方法:
 #   bash scripts/install-hooks.sh                    # ユーザースコープ (~/.claude/settings.json)
@@ -8,10 +8,10 @@
 #   bash scripts/install-hooks.sh --project /path/to/project  # プロジェクトスコープ
 #
 # 追加されるフック:
-#   SessionStart  → zunda-session-start.sh (async)
-#   SessionEnd    → zunda-session-end.sh
-#   PreToolUse    → zunda-speak.sh (async)
-#   PostToolUse   → zunda-speak.sh (async)
+#   SessionStart  → gemini-tts-session-start.sh (async)
+#   SessionEnd    → gemini-tts-session-end.sh
+#   PreToolUse    → gemini-tts-speak.sh (async)
+#   PostToolUse   → gemini-tts-speak.sh (async)
 #
 # 注意:
 #   - 同一コマンドが既に登録済みの場合はスキップ（冪等）
@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOOKS_DIR="$REPO_DIR/.claude/hooks"
 
-# OS 判定（jq インストール案内 / VOICEVOX パス表示に使用）
+# OS 判定（依存案内に使用）
 OS=$(uname -s)
 
 # Windows Git Bash では $HOME が未設定の場合がある
@@ -73,7 +73,7 @@ done
 # ── インストール先の決定 ─────────────────────────────────────────────────────
 if [ "$TARGET_MODE" = "user" ]; then
   TARGET_SETTINGS="$HOME/.claude/settings.json"
-  echo "=== ずんだもん hooks インストーラー (ユーザースコープ) ==="
+  echo "=== gemini-tts hooks インストーラー (ユーザースコープ) ==="
 else
   if [ -z "$PROJECT_DIR" ]; then
     echo "ERROR: --project にディレクトリが指定されていません" >&2
@@ -85,7 +85,7 @@ else
   fi
   PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
   TARGET_SETTINGS="$PROJECT_DIR/.claude/settings.json"
-  echo "=== ずんだもん hooks インストーラー (プロジェクトスコープ) ==="
+  echo "=== gemini-tts hooks インストーラー (プロジェクトスコープ) ==="
   echo "プロジェクト: $PROJECT_DIR"
 fi
 
@@ -94,17 +94,40 @@ echo "設定ファイル: $TARGET_SETTINGS"
 echo ""
 
 # ── 前提チェック ─────────────────────────────────────────────────────────────
-if ! command -v jq >/dev/null 2>&1; then
-  echo "ERROR: jq が見つかりません。インストールしてください:" >&2
-  case "$OS" in
-    Darwin*)
-      echo "  brew install jq" >&2 ;;
-    MINGW*|MSYS*|CYGWIN*)
-      echo "  winget install jqlang.jq  # または: choco install jq / scoop install jq" >&2 ;;
-    *)
-      echo "  sudo apt install jq  # または: sudo dnf install jq" >&2 ;;
-  esac
-  exit 1
+for cmd in jq node ffmpeg curl; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "ERROR: $cmd が見つかりません。" >&2
+    case "$cmd" in
+      jq)
+        case "$OS" in
+          Darwin*) echo "  brew install jq" >&2 ;;
+          MINGW*|MSYS*|CYGWIN*) echo "  winget install jqlang.jq" >&2 ;;
+          *) echo "  sudo apt install jq" >&2 ;;
+        esac
+        ;;
+      node)
+        case "$OS" in
+          Darwin*) echo "  brew install node" >&2 ;;
+          MINGW*|MSYS*|CYGWIN*) echo "  winget install OpenJS.NodeJS.LTS" >&2 ;;
+          *) echo "  sudo apt install nodejs" >&2 ;;
+        esac
+        ;;
+      ffmpeg)
+        case "$OS" in
+          Darwin*) echo "  brew install ffmpeg" >&2 ;;
+          MINGW*|MSYS*|CYGWIN*) echo "  winget install Gyan.FFmpeg" >&2 ;;
+          *) echo "  sudo apt install ffmpeg" >&2 ;;
+        esac
+        ;;
+    esac
+    exit 1
+  fi
+done
+
+if [ -z "${GEMINI_API_KEY:-}" ] && [ ! -f "$REPO_DIR/.env" ]; then
+  echo "WARNING: GEMINI_API_KEY が未設定です。"
+  echo "  $REPO_DIR/.env を作成するか、環境変数 GEMINI_API_KEY を設定してください。"
+  echo ""
 fi
 
 if [ ! -f "$TARGET_SETTINGS" ]; then
@@ -118,7 +141,7 @@ if [ ! -f "$TARGET_SETTINGS" ]; then
   fi
 fi
 
-for script in zunda-speak.sh zunda-session-start.sh zunda-session-end.sh; do
+for script in gemini-tts-speak.sh gemini-tts-session-start.sh gemini-tts-session-end.sh; do
   if [ ! -f "$HOOKS_DIR/$script" ]; then
     echo "ERROR: $HOOKS_DIR/$script が見つかりません" >&2
     exit 1
@@ -136,10 +159,10 @@ echo ""
 REPO_DIR_ESC=$(printf '%q' "$REPO_DIR")
 HOOKS_DIR_ESC=$(printf '%q' "$HOOKS_DIR")
 
-# session-start は CLAUDE_PROJECT_DIR を env で渡す（initial_warning.wav の参照に必要）
-SESSION_START_CMD="CLAUDE_PROJECT_DIR=${REPO_DIR_ESC} bash ${HOOKS_DIR_ESC}/zunda-session-start.sh"
-SESSION_END_CMD="bash ${HOOKS_DIR_ESC}/zunda-session-end.sh"
-SPEAK_CMD="bash ${HOOKS_DIR_ESC}/zunda-speak.sh"
+# session-start は CLAUDE_PROJECT_DIR を env で渡す（初回警告 wav の参照に必要）
+SESSION_START_CMD="CLAUDE_PROJECT_DIR=${REPO_DIR_ESC} bash ${HOOKS_DIR_ESC}/gemini-tts-session-start.sh"
+SESSION_END_CMD="bash ${HOOKS_DIR_ESC}/gemini-tts-session-end.sh"
+SPEAK_CMD="bash ${HOOKS_DIR_ESC}/gemini-tts-speak.sh"
 
 # ── settings.json にフックを追加（冪等） ────────────────────────────────────
 UPDATED=$(jq \
@@ -171,18 +194,11 @@ printf '%s\n' "$UPDATED" > "$TARGET_SETTINGS"
 echo "インストール完了!"
 echo ""
 echo "追加されたフック:"
-echo "  SessionStart  → zunda-session-start.sh (async=true)"
-echo "  SessionEnd    → zunda-session-end.sh   (async=false)"
-echo "  PreToolUse    → zunda-speak.sh         (async=true)"
-echo "  PostToolUse   → zunda-speak.sh         (async=true)"
+echo "  SessionStart  → gemini-tts-session-start.sh (async=true)"
+echo "  SessionEnd    → gemini-tts-session-end.sh   (async=false)"
+echo "  PreToolUse    → gemini-tts-speak.sh         (async=true)"
+echo "  PostToolUse   → gemini-tts-speak.sh         (async=true)"
 echo ""
 echo "次のステップ:"
-case "$OS" in
-  Darwin*)
-    echo "  1. VOICEVOX を起動: open /Applications/VOICEVOX.app" ;;
-  MINGW*|MSYS*|CYGWIN*)
-    echo "  1. VOICEVOX を起動: \${LOCALAPPDATA}/Programs/VOICEVOX/VOICEVOX.exe" ;;
-  *)
-    echo "  1. VOICEVOX を起動: \$HOME/.voicevox/VOICEVOX.AppImage --no-sandbox" ;;
-esac
+echo "  1. API キーを設定: cp .env.example .env && edit .env"
 echo "  2. 音声キャッシュを生成: bash scripts/pregenerate.sh"

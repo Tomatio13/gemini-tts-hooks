@@ -5,7 +5,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/zunda-session-start.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gemini-tts-session-start.sh\"",
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=/home/masato/Agentic/gemini-tts-hooks bash /home/masato/Agentic/gemini-tts-hooks/.claude/hooks/gemini-tts-session-start.sh",
             "async": true
           }
         ]
@@ -16,7 +25,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/zunda-session-end.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gemini-tts-session-end.sh\"",
+            "async": false
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/masato/Agentic/gemini-tts-hooks/.claude/hooks/gemini-tts-session-end.sh",
             "async": false
           }
         ]
@@ -27,7 +45,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/zunda-speak.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gemini-tts-speak.sh\"",
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/masato/Agentic/gemini-tts-hooks/.claude/hooks/gemini-tts-speak.sh",
             "async": true
           }
         ]
@@ -38,7 +65,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/zunda-speak.sh\"",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gemini-tts-speak.sh\"",
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/masato/Agentic/gemini-tts-hooks/.claude/hooks/gemini-tts-speak.sh",
             "async": true
           }
         ]

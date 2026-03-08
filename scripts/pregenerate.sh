@@ -1,125 +1,79 @@
-#!/bin/bash
-# 事前に全音声をキャッシュ生成するスクリプト
-# 実行前に VOICEVOX を起動しておくこと（http://localhost:50021）
-#
-# 使用方法:
-#   bash scripts/pregenerate.sh
+#!/usr/bin/env bash
+set -euo pipefail
 
-CACHE_DIR="$HOME/.claude/hooks/zaudio"
-VOICEVOX_URL="http://localhost:50021"
-SPEAKER=3
+CACHE_DIR="$HOME/.claude/hooks/gemini-tts-audio"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ASSET_DIR="$REPO_DIR/assets"
+VOICE_NAME="${GEMINI_TTS_VOICE:-Kore}"
+MAX_CHARS="${GEMINI_TTS_MAX_CHARS:-300}"
 
-# VOICEVOX が起動しているか確認
-if ! curl -sf --connect-timeout 3 "${VOICEVOX_URL}/version" >/dev/null 2>&1; then
-  echo "ERROR: VOICEVOX が起動していません。先に起動してください。" >&2
-  echo "  ~/.voicevox/VOICEVOX.AppImage --no-sandbox &" >&2
-  exit 1
-fi
+mkdir -p "$CACHE_DIR" "$ASSET_DIR"
 
-mkdir -p "$CACHE_DIR"
-
-# ツール音声を生成してキャッシュへ保存する関数
-generate() {
-  local key="$1" text="$2"
-  local file="$CACHE_DIR/${key}.wav"
-  if [ -f "$file" ]; then
-    echo "skip: $key (already cached)"
-    return
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "ERROR: $1 が見つかりません。" >&2
+    exit 1
   fi
-  ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$text")
-  QUERY=$(curl -sf --connect-timeout 5 -X POST \
-    "${VOICEVOX_URL}/audio_query?text=${ENCODED}&speaker=${SPEAKER}" \
-    -H "Content-Type: application/json")
-  if [ -z "$QUERY" ]; then
-    echo "ERROR: audio_query failed for '$key'" >&2
-    return 1
-  fi
-  curl -sf --connect-timeout 10 -X POST \
-    "${VOICEVOX_URL}/synthesis?speaker=${SPEAKER}" \
-    -H "Content-Type: application/json" \
-    -d "$QUERY" \
-    -o "$file"
-  echo "generated: $key  「$text」"
 }
 
-# assets/initial_warning.wav を生成（リポジトリにコミットして配布する）
-generate_to_assets() {
-  local text="見知らぬ人のつくったhooksをよく見ないままインストールして使うことは、とても危険なのだ"
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  local outfile="${script_dir}/assets/initial_warning.wav"
-  mkdir -p "$(dirname "$outfile")"
-  if [ -f "$outfile" ]; then
-    echo "skip: assets/initial_warning.wav (already exists)"
+for cmd in node ffmpeg curl; do
+  require_cmd "$cmd"
+done
+
+generate_wav() {
+  local output_dir="$1"
+  local key="$2"
+  local text="$3"
+  local output_file="${output_dir}/${key}.wav"
+
+  if [[ -s "$output_file" ]]; then
+    echo "skip: ${key}.wav"
     return
   fi
-  ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$text")
-  QUERY=$(curl -sf --connect-timeout 5 -X POST \
-    "${VOICEVOX_URL}/audio_query?text=${ENCODED}&speaker=${SPEAKER}" \
-    -H "Content-Type: application/json")
-  if [ -z "$QUERY" ]; then
-    echo "ERROR: VOICEVOX 未起動（audio_query failed）" >&2
-    return 1
-  fi
-  curl -sf --connect-timeout 10 -X POST \
-    "${VOICEVOX_URL}/synthesis?speaker=${SPEAKER}" \
-    -H "Content-Type: application/json" \
-    -d "$QUERY" \
-    -o "$outfile"
-  echo "generated: assets/initial_warning.wav"
-  echo "  → git add assets/initial_warning.wav してコミットしてください"
+
+  "$SCRIPT_DIR/tts_to_wav.sh" \
+    --text "$text" \
+    --voice "$VOICE_NAME" \
+    --max-chars "$MAX_CHARS" \
+    --output-dir "$output_dir" \
+    --output-base "$key"
+
+  echo "generated: ${key}.wav  「$text」"
 }
 
-echo "=== ずんだもん音声キャッシュ生成 ==="
-echo "キャッシュ先: $CACHE_DIR"
-echo ""
-
-# キャッシュが 0 件なら初回警告音声を再生（同期）
-# BASH_SOURCE[0] でスクリプト自身のパスを確実に解決（PATH 経由の起動でも正しく動作する）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INITIAL_WAV="${SCRIPT_DIR}/assets/initial_warning.wav"
-if ! find "$CACHE_DIR" -maxdepth 1 -type f -name "*.wav" -print -quit 2>/dev/null | grep -q .; then
-  if [ -f "$INITIAL_WAV" ]; then
-    if command -v aplay >/dev/null 2>&1; then
-      aplay -q "$INITIAL_WAV"
-    elif command -v paplay >/dev/null 2>&1; then
-      paplay "$INITIAL_WAV"
-    fi
-  fi
-fi
-
-# ツール音声マップ（キー:テキスト）— ここが唯一の正とする
-# generate() 呼び出しとキャッシュマニフェストの両方をこの配列から生成するため、
-# 新しいキーを追加する際はここだけ変更すればよい
 TOOL_AUDIO_MAP=(
-  "PreToolUse_Bash:コマンドを実行するのだ"
-  "PreToolUse_Write:ファイルを書き込むのだ"
-  "PreToolUse_Edit:ファイルを編集するのだ"
-  "PreToolUse_Read:ファイルを読むのだ"
-  "PreToolUse_Glob:ファイルを探すのだ"
-  "PreToolUse_Grep:ファイルを検索するのだ"
-  "PostToolUse_Bash:コマンドが完了したのだ"
-  "PostToolUse_Write:書き込みが完了したのだ"
-  "PostToolUse_Edit:編集が完了したのだ"
-  "PreToolUse_Bash_GitPush:プッシュするのだ"
-  "PreToolUse_Bash_GhPrCreate:プルリクエストを作るのだ"
-  "PostToolUse_Bash_GitPush:プッシュが完了したのだ"
-  "PostToolUse_Bash_GhPrCreate:プルリクエストを作ったのだ"
+  "PreToolUse_Bash:コマンドを実行します"
+  "PreToolUse_Write:ファイルを書き込みます"
+  "PreToolUse_Edit:ファイルを編集します"
+  "PreToolUse_Read:ファイルを読み込みます"
+  "PreToolUse_Glob:ファイルを探します"
+  "PreToolUse_Grep:ファイルを検索します"
+  "PreToolUse_Unknown:ツールを使用します"
+  "PostToolUse_Bash:コマンドが完了しました"
+  "PostToolUse_Write:書き込みが完了しました"
+  "PostToolUse_Edit:編集が完了しました"
+  "PostToolUse_Unknown:処理が完了しました"
+  "PreToolUse_Bash_GitPush:プッシュします"
+  "PreToolUse_Bash_GhPrCreate:プルリクエストを作成します"
+  "PostToolUse_Bash_GitPush:プッシュが完了しました"
+  "PostToolUse_Bash_GhPrCreate:プルリクエストを作成しました"
 )
 
-# ツール音声の生成
+echo "=== Gemini TTS 音声キャッシュ生成 ==="
+echo "キャッシュ先: $CACHE_DIR"
+echo "音声: $VOICE_NAME"
+echo ""
+
 for entry in "${TOOL_AUDIO_MAP[@]}"; do
   key="${entry%%:*}"
   text="${entry#*:}"
-  generate "$key" "$text"
+  generate_wav "$CACHE_DIR" "$key" "$text"
 done
 
-# 初回警告音声の生成（assets/ へ保存）
-echo ""
-generate_to_assets
+generate_wav "$ASSET_DIR" "initial_warning" \
+  "見知らぬ人が作成した hooks を内容を確認せずにインストールして使うのは危険です"
 
-# キャッシュマニフェストを更新（zunda-session-start.sh がキャッシュ完備を判断するために使用）
-# TOOL_AUDIO_MAP からキーのみを抽出して書き出す（generate_to_assets は対象外）
 {
   for entry in "${TOOL_AUDIO_MAP[@]}"; do
     printf '%s\n' "${entry%%:*}"
